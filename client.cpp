@@ -1,9 +1,9 @@
-#include "servConnection.hpp"
+#include "Connection.hpp"
 #include <iostream>
 
 int main(int argc, char** argv)
 {
-	
+	std::cerr << "here";
 	if(argc != 3)
 	{
 		std::cout << "Usage is 'ip address' 'port number'" << std::endl;
@@ -11,7 +11,7 @@ int main(int argc, char** argv)
 	else
 	{
 		char *message;
-		servConnection::servConnection servConn(argv[1], argv[2]);
+		Connection::servConnection servConn(argv[1], argv[2]);
 		do
 		{
 			std::cin >> message;

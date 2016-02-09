@@ -8,7 +8,7 @@
  * Class that manages connections to the server by a client.
  */
 
-namespace servConnection
+namespace Connection
 {
     class servConnection
     {
@@ -34,6 +34,7 @@ namespace servConnection
         	
     servConnection::servConnection(const char* ipAddr, const char* servPort)
 	{
+		std::cerr << "here " << ipAddr << " " << servPort << std::endl;
     	memset(&sockSpecs, 0, sizeof(sockSpecs));
     	sockSpecs.ai_family = AF_UNSPEC;
     	sockSpecs.ai_socktype = SOCK_STREAM;
@@ -43,30 +44,27 @@ namespace servConnection
 		{
 			//Get address info of server on ip ipAddr and port servPort
 			int status = getaddrinfo(ipAddr, servPort, &sockSpecs, &infoResults);
-			if(status == -1)
+			if(status != 0)
 			{
-				throw(strerror(status));
+				throw(status);
 			}
-	
 			//Create socket, resulting identifier goes in sockfd
 			sockfd = socket(infoResults->ai_family, infoResults->ai_socktype,
 							infoResults->ai_protocol);
 			if(sockfd == -1)
 			{
-				throw(strerror(errno));
+				throw(sockfd);
 			}
-
-
 			//Try to connect the created socket to server, result goes in status
 			status = connect(sockfd, infoResults->ai_addr, sizeof(infoResults->ai_addr));
 			if(status == -1)
 			{
-				throw(strerror(errno));
+				throw(status);
 			}
 		}
-		catch(char *msg)
+		catch(int err)
 		{
-			std::cerr << msg;
+			std::cerr << gai_strerror(err) << std::endl;
 		}		
 	}
 	
@@ -79,12 +77,12 @@ namespace servConnection
 			status = write(sockfd, message, 255);
 			if(status == -1)
 			{
-				throw(strerror(errno));
+				throw(status);
 			}
 		}
-		catch(char *msg)
+		catch(int err)
 		{
-			std::cerr << msg;
+			std::cerr << gai_strerror(err) << std::endl;
 		}
 	}
 	
@@ -98,7 +96,7 @@ namespace servConnection
 			result = select(sockfd + 1, &readSet, NULL, NULL, NULL);
 			if(result == -1)
 			{
-				throw(strerror(errno));
+				throw(result);
 			}
 			else if(result == 1)
 			{
@@ -106,9 +104,9 @@ namespace servConnection
 				
 			}
 		}
-		catch(char *msg)
+		catch(int err)
 		{
-			std::cerr << msg;
+			std::cerr << gai_strerror(err) << std::endl;
 		}				
 	}
 }
