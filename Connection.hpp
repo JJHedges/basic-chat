@@ -4,6 +4,8 @@
 #include <errno.h>
 #include <unistd.h>
 
+#define MAXSOCKCONNS 32
+
 /*
  * Class that manages connections to the server by a client.
  */
@@ -34,7 +36,6 @@ namespace Connection
         	
     servConnection::servConnection(const char* ipAddr, const char* servPort)
 	{
-		std::cerr << "here " << ipAddr << " " << servPort << std::endl;
     	memset(&sockSpecs, 0, sizeof(sockSpecs));
     	sockSpecs.ai_family = AF_UNSPEC;
     	sockSpecs.ai_socktype = SOCK_STREAM;
@@ -108,5 +109,76 @@ namespace Connection
 		{
 			std::cerr << gai_strerror(err) << std::endl;
 		}				
+	}
+	
+	class clientManager
+	{
+		public:
+			clientManager();
+			~clientManager();
+			void addNewClients();
+			
+		private:
+			struct sockaddr_in server;
+			int servfd, maxSockfd;
+			fd_set currentClients;
+	};
+	
+	clientManager::clientManager()
+	{
+		//ADD TRY CATCH ON SOCKET/BIND/LISTEN
+		FD_ZERO(&currentClients);
+		server.sin_family = AF_INET;
+		server.sin_addr.s_addr = INADDR_ANY;
+		server.sin_port = htons(12345);
+		servfd = socket(AF_INET, SOCK_STREAM, 0);
+		maxSockfd = servfd;
+		bind(servfd, (struct sockaddr *)&server, sizeof(server));
+		listen(servfd, MAXSOCKCONNS);
+	}
+	
+	clientManager::~clientManager()
+	{
+		
+	}
+	
+	void clientManager::readFromClients()
+	{
+		
+	}
+	
+	void clientManager::addNewClients()
+	{
+		//fd_set to contain just the server file descriptor to use in select
+		fd_set servSet;
+		//timeval struct with the appropriate timeout value
+		struct timeval timeout;
+		//0 seconds makes select instantly return (poll)
+		timeout.tv_sec = 0;
+		timeout.tv_usec = 0;
+		//Zero the fd_set to make sure memory is clear
+		FD_ZERO(&servSet);
+		//Add servfd to fd_set
+		FD_SET(servfd, &servSet);
+		try
+		{
+			int result = select(servfd + 1, &servSet, NULL, NULL, &timeout);
+			if(result == -1)
+			{
+				throw(errno);
+			}
+			else if (result == 1)
+			{
+				socklen_t len = sizeof(server);
+				//T/C FOR ACCEPT
+				int newSockfd = accept(servfd, (struct sockaddr *)&server, &len);
+				FD_SET(newSockfd, &currentClients);
+				maxSockfd = (maxSockfd < newSockfd)?newSockfd:maxSockfd;
+			}
+		}
+		catch(int err)
+		{
+			std::cerr << gai_strerror(err) << std::endl;
+		}
 	}
 }

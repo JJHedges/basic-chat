@@ -3,7 +3,6 @@
 
 int main(int argc, char** argv)
 {
-	std::cerr << "here";
 	if(argc != 3)
 	{
 		std::cout << "Usage is 'ip address' 'port number'" << std::endl;
