@@ -3,6 +3,7 @@
 #include <string.h>
 #include <errno.h>
 #include <unistd.h>
+#include <string.h>
 
 #define MAXSOCKCONNS 32
 
@@ -39,14 +40,14 @@ namespace Connection
     	memset(&sockSpecs, 0, sizeof(sockSpecs));
     	sockSpecs.ai_family = AF_UNSPEC;
     	sockSpecs.ai_socktype = SOCK_STREAM;
-    	sockSpecs.ai_flags = AI_PASSIVE;
-    
+    	
     	try
 		{
 			//Get address info of server on ip ipAddr and port servPort
 			int status = getaddrinfo(ipAddr, servPort, &sockSpecs, &infoResults);
 			if(status != 0)
 			{
+				//std::cerr << "here";
 				throw(status);
 			}
 			//Create socket, resulting identifier goes in sockfd
@@ -54,28 +55,38 @@ namespace Connection
 							infoResults->ai_protocol);
 			if(sockfd == -1)
 			{
+				//std::cerr << "here";
 				throw(sockfd);
 			}
 			//Try to connect the created socket to server, result goes in status
-			status = connect(sockfd, infoResults->ai_addr, sizeof(infoResults->ai_addr));
+			status = connect(sockfd, infoResults->ai_addr, infoResults->ai_addrlen);
 			if(status == -1)
 			{
+				//std::cerr << "here";
 				throw(status);
 			}
 		}
 		catch(int err)
 		{
 			std::cerr << gai_strerror(err) << std::endl;
-		}		
+		}
+		std::cout << "here";		
 	}
 	
 	void servConnection::writeServer(char* message)
 	{
 		int status;
+		int size = strlen(message);
 		try
 		{
 			//Writes to server socket, throws exception on error
-			status = write(sockfd, message, 255);
+			int tmp = htonl((uint32_t)size);
+			status = write(sockfd, &tmp, sizeof(tmp));
+			if(status == -1)
+			{
+				throw(status);
+			}
+			status = write(sockfd, message, size);
 			if(status == -1)
 			{
 				throw(status);
@@ -102,13 +113,19 @@ namespace Connection
 			else if(result == 1)
 			{
 				//If server has sent data then read it and output it
-				
+				//T/C FOR READS
+				uint32_t size;
+				char message[256];
+				read(sockfd, &size, sizeof(uint32_t));
+				read(sockfd, &message,size);
+				std::cout << message << std::endl;
 			}
 		}
 		catch(int err)
 		{
 			std::cerr << gai_strerror(err) << std::endl;
-		}				
+		}
+		std::cout << "Attempted read" << std::endl;				
 	}
 	
 	class clientManager
@@ -117,8 +134,11 @@ namespace Connection
 			clientManager();
 			~clientManager();
 			void addNewClients();
+			void readFromClients();
 			
 		private:
+			//timeval struct with the appropriate timeout value		
+			struct timeval timeout;		
 			struct sockaddr_in server;
 			int servfd, maxSockfd;
 			fd_set currentClients;
@@ -131,6 +151,9 @@ namespace Connection
 		server.sin_family = AF_INET;
 		server.sin_addr.s_addr = INADDR_ANY;
 		server.sin_port = htons(12345);
+		//0 seconds makes select instantly return (poll)
+		timeout.tv_sec = 0;
+		timeout.tv_usec = 0;
 		servfd = socket(AF_INET, SOCK_STREAM, 0);
 		maxSockfd = servfd;
 		bind(servfd, (struct sockaddr *)&server, sizeof(server));
@@ -139,23 +162,56 @@ namespace Connection
 	
 	clientManager::~clientManager()
 	{
-		
+		for(int i = 0; i < maxSockfd + 1; i++)
+		{
+			if(FD_ISSET(i, &currentClients))
+			{
+				//Close socket with no more reading
+				shutdown(i, SHUT_RD);
+			}
+			FD_ZERO(&currentClients);
+		}
+		shutdown(servfd, SHUT_RD);
 	}
 	
 	void clientManager::readFromClients()
 	{
-		
+		//Temporary set to hold current clients as argument to select is modified in place
+		fd_set tmpSet;
+		memcpy(&tmpSet, &currentClients, sizeof(tmpSet));		
+		try
+		{
+			int result = select(maxSockfd + 1, &tmpSet, NULL, NULL, &timeout);
+			//std::cout << result << std::endl;
+			if(result == -1)
+			{
+				throw(errno);
+			}
+			else if(result != 0)
+			{
+				for(int i = 0; i < maxSockfd + 1; i++)
+				{
+					if(FD_ISSET(i, &tmpSet))
+					{
+						char msg[256];
+						int size;
+						read(i, &size, 4);
+						read(i, &msg, size);
+						std::cout << msg << std::endl;
+					}
+				}
+			}
+		}
+		catch(int err)
+		{
+			std::cerr << gai_strerror(err) << std::endl;
+		}
 	}
 	
 	void clientManager::addNewClients()
 	{
 		//fd_set to contain just the server file descriptor to use in select
-		fd_set servSet;
-		//timeval struct with the appropriate timeout value
-		struct timeval timeout;
-		//0 seconds makes select instantly return (poll)
-		timeout.tv_sec = 0;
-		timeout.tv_usec = 0;
+		fd_set servSet;		
 		//Zero the fd_set to make sure memory is clear
 		FD_ZERO(&servSet);
 		//Add servfd to fd_set
@@ -169,11 +225,13 @@ namespace Connection
 			}
 			else if (result == 1)
 			{
+				std::cout << "Adding new conn" << std::endl;
 				socklen_t len = sizeof(server);
 				//T/C FOR ACCEPT
 				int newSockfd = accept(servfd, (struct sockaddr *)&server, &len);
+				std::cout << servfd << " " << newSockfd << std::endl;
 				FD_SET(newSockfd, &currentClients);
-				maxSockfd = (maxSockfd < newSockfd)?newSockfd:maxSockfd;
+				maxSockfd = (maxSockfd < newSockfd) ? newSockfd:maxSockfd;
 			}
 		}
 		catch(int err)

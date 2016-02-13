@@ -9,12 +9,12 @@ int main(int argc, char** argv)
 	}
 	else
 	{
-		char *message;
+		char message[256];
 		Connection::servConnection servConn(argv[1], argv[2]);
 		do
 		{
 			std::cin >> message;
-			servConn.writeServer(message);
+			servConn.writeServer((char*)message);
 			servConn.readServer();
 			servConn.readServer();
 		}while(strcmp(message, "exit") != 0);

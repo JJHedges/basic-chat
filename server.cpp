@@ -8,6 +8,7 @@ int main(int argc, char** argv)
 	Connection::clientManager cliMan;
 	while(true)
 	{
-
+		cliMan.addNewClients();
+		cliMan.readFromClients();
 	}
 }
