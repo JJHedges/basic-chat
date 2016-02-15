@@ -32,7 +32,7 @@ namespace Connection
     
     servConnection::~servConnection()
     {
-    	shutdown(sockfd, 0);
+    	shutdown(sockfd, SHUT_RDWR);
     }
         	
     servConnection::servConnection(const char* ipAddr, const char* servPort)
@@ -69,8 +69,7 @@ namespace Connection
 		catch(int err)
 		{
 			std::cerr << gai_strerror(err) << std::endl;
-		}
-		std::cout << "here";		
+		}	
 	}
 	
 	void servConnection::writeServer(char* message)
@@ -101,31 +100,43 @@ namespace Connection
 	void servConnection::readServer()
 	{
 		fd_set readSet;
+		FD_SET(sockfd ,&readSet);
 		int result, status;
+		struct timeval timeout;
+		timeout.tv_usec = 0;
+		timeout.tv_sec = 0;
 		try
 		{
 			//Checks if server has sent data
-			result = select(sockfd + 1, &readSet, NULL, NULL, NULL);
+			result = select(sockfd + 1, &readSet, NULL, NULL, &timeout);
 			if(result == -1)
 			{
 				throw(result);
 			}
-			else if(result == 1)
+			else if(FD_ISSET(sockfd, &readSet))
 			{
 				//If server has sent data then read it and output it
-				//T/C FOR READS
 				uint32_t size;
 				char message[256];
-				read(sockfd, &size, sizeof(uint32_t));
-				read(sockfd, &message,size);
-				std::cout << message << std::endl;
+				memset(message, '\0', 256);
+				status = read(sockfd, &size, sizeof(uint32_t));
+				if(status == -1)
+				{
+					throw(status);
+				}
+				size = ntohl(size);
+				status = read(sockfd, message, size);
+				if(status == -1)
+				{
+					throw(status);
+				}
+				std::cout << "External message: " << message << std::endl;
 			}
 		}
 		catch(int err)
 		{
 			std::cerr << gai_strerror(err) << std::endl;
-		}
-		std::cout << "Attempted read" << std::endl;				
+		}				
 	}
 	
 	class clientManager
@@ -135,6 +146,7 @@ namespace Connection
 			~clientManager();
 			void addNewClients();
 			void readFromClients();
+			void echoToClients(char *, int);
 			
 		private:
 			//timeval struct with the appropriate timeout value		
@@ -174,6 +186,22 @@ namespace Connection
 		shutdown(servfd, SHUT_RD);
 	}
 	
+	void clientManager::echoToClients(char* message, int messageLen)
+	{
+		int tmp = htonl(messageLen);
+		for(int i = 0; i < maxSockfd + 1; i++)
+		{
+			if(FD_ISSET(i, &currentClients))
+			{
+				std::cout << "i: " << i << " messageLen: " << messageLen << std::endl;
+				std::cout << "tmp: " << tmp << " message: " << message << std::endl;
+				write(i, &tmp, sizeof(uint32_t));
+				int writeCount = write(i, message, messageLen);
+				std::cout << writeCount << " " << sizeof(char) << std::endl;
+			}
+		}
+	}
+	
 	void clientManager::readFromClients()
 	{
 		//Temporary set to hold current clients as argument to select is modified in place
@@ -195,9 +223,13 @@ namespace Connection
 					{
 						char msg[256];
 						int size;
-						read(i, &size, 4);
+						memset(msg, '\0', 256);
+						read(i, &size, sizeof(uint32_t));
+						size = ntohl(size);
+						std::cout << "Size: " << size << std::endl;
 						read(i, &msg, size);
-						std::cout << msg << std::endl;
+						std::cout << "Message: " << msg << std::endl;
+						echoToClients(msg, size);
 					}
 				}
 			}
@@ -223,7 +255,7 @@ namespace Connection
 			{
 				throw(errno);
 			}
-			else if (result == 1)
+			else if(result == 1)
 			{
 				std::cout << "Adding new conn" << std::endl;
 				socklen_t len = sizeof(server);

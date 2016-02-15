@@ -10,13 +10,33 @@ int main(int argc, char** argv)
 	else
 	{
 		char message[256];
+		fd_set cinfd;
+		int result;
+		struct timeval timeout;
+		timeout.tv_usec = 0;
+		timeout.tv_sec = 0;
 		Connection::servConnection servConn(argv[1], argv[2]);
-		do
-		{
-			std::cin >> message;
-			servConn.writeServer((char*)message);
+		while(true)
+		{				
+			FD_ZERO(&cinfd);
+			FD_SET(STDIN_FILENO, &cinfd);
+			result = select(STDIN_FILENO + 1, &cinfd, NULL, NULL, &timeout);
+			if(result == -1)
+			{
+				std::cerr << gai_strerror(errno) << std::endl;
+				break;
+			}
+			else if(result != 0)
+			{
+				memset(message, '\0', 256);
+				std::cin >> message;
+				if(strcmp(message, "exit") == 0)
+				{
+					break;
+				}
+				servConn.writeServer((char*)message);
+			}									
 			servConn.readServer();
-			servConn.readServer();
-		}while(strcmp(message, "exit") != 0);
+		}
 	}
 }

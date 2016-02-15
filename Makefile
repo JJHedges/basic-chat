@@ -3,8 +3,8 @@ CLIENTOBJS = client.o
 TARGETS = client server
 CC = g++
 DEBUG = -g
-CFLAGS = -c $(DEBUG)
-LFLAGS = $(DEBUG)
+CFLAGS = -Wall -c $(DEBUG)
+LFLAGS = -Wall $(DEBUG)
 
 all: $(SERVOBJS) $(CLIENTOBJS) $(TARGETS)
 
