@@ -3,16 +3,14 @@
 #include <string.h>
 #include <errno.h>
 #include <unistd.h>
-#include <string.h>
+#include <arpa/inet.h>
 
+//Maximum number of connections to be queued up for server during listen()
 #define MAXSOCKCONNS 32
-
-/*
- * Class that manages connections to the server by a client.
- */
 
 namespace Connection
 {
+	//Class to manage a clients connection to server
     class servConnection
     {
         public:
@@ -30,15 +28,21 @@ namespace Connection
         	struct addrinfo *infoResults;        			 	
     };
     
+    //Destructor for class, only needs to manage the socket to server
     servConnection::~servConnection()
     {
+    	//Shutdown socket to server with no further reading or writing
     	shutdown(sockfd, SHUT_RDWR);
     }
-        	
+    
+    //Class constructor, needs to be provided server ip address and port    	
     servConnection::servConnection(const char* ipAddr, const char* servPort)
 	{
+		//Clear socket specifications just in case
     	memset(&sockSpecs, 0, sizeof(sockSpecs));
+    	//Unspecified address family (ipv4 or ipv6)
     	sockSpecs.ai_family = AF_UNSPEC;
+    	//Set socket type to SOCK_STREAM (TCP)
     	sockSpecs.ai_socktype = SOCK_STREAM;
     	
     	try
@@ -47,7 +51,6 @@ namespace Connection
 			int status = getaddrinfo(ipAddr, servPort, &sockSpecs, &infoResults);
 			if(status != 0)
 			{
-				//std::cerr << "here";
 				throw(status);
 			}
 			//Create socket, resulting identifier goes in sockfd
@@ -55,14 +58,12 @@ namespace Connection
 							infoResults->ai_protocol);
 			if(sockfd == -1)
 			{
-				//std::cerr << "here";
 				throw(sockfd);
 			}
 			//Try to connect the created socket to server, result goes in status
 			status = connect(sockfd, infoResults->ai_addr, infoResults->ai_addrlen);
 			if(status == -1)
 			{
-				//std::cerr << "here";
 				throw(status);
 			}
 		}
@@ -72,19 +73,21 @@ namespace Connection
 		}	
 	}
 	
+	//Write provided message to server to echo to all clients
 	void servConnection::writeServer(char* message)
 	{
 		int status;
 		int size = strlen(message);
 		try
 		{
-			//Writes to server socket, throws exception on error
+			//Writes length of message to server socket
 			int tmp = htonl((uint32_t)size);
 			status = write(sockfd, &tmp, sizeof(tmp));
 			if(status == -1)
 			{
 				throw(status);
 			}
+			//Writes message to server socket
 			status = write(sockfd, message, size);
 			if(status == -1)
 			{
@@ -97,11 +100,14 @@ namespace Connection
 		}
 	}
 	
+	//Checks for messages then reads from the server socket
 	void servConnection::readServer()
 	{
+		//File descriptor set with just the server socket in it
 		fd_set readSet;
 		FD_SET(sockfd ,&readSet);
 		int result, status;
+		//Timeval struct with 0 seconds so select returns instantly
 		struct timeval timeout;
 		timeout.tv_usec = 0;
 		timeout.tv_sec = 0;
@@ -113,24 +119,26 @@ namespace Connection
 			{
 				throw(result);
 			}
+			//If server has data for client
 			else if(FD_ISSET(sockfd, &readSet))
 			{
-				//If server has sent data then read it and output it
 				uint32_t size;
 				char message[256];
 				memset(message, '\0', 256);
+				//Read length of message from socket
 				status = read(sockfd, &size, sizeof(uint32_t));
 				if(status == -1)
 				{
 					throw(status);
 				}
 				size = ntohl(size);
+				//Read message from socket
 				status = read(sockfd, message, size);
 				if(status == -1)
 				{
 					throw(status);
 				}
-				std::cout << "External message: " << message << std::endl;
+				std::cout << message << std::endl;
 			}
 		}
 		catch(int err)
@@ -139,39 +147,67 @@ namespace Connection
 		}				
 	}
 	
+	//Class to manage clients of the server
 	class clientManager
 	{
 		public:
-			clientManager();
+			clientManager(int);
 			~clientManager();
 			void addNewClients();
 			void readFromClients();
-			void echoToClients(char *, int);
+			void echoToClients(char *, int, int);
 			
 		private:
 			//timeval struct with the appropriate timeout value		
-			struct timeval timeout;		
+			struct timeval timeout;
+			//Struct holding servers main socket information		
 			struct sockaddr_in server;
+			//File descriptor of main server socket and the maximum decriptor seen so far
 			int servfd, maxSockfd;
+			//File descriptor set holding all current clients
 			fd_set currentClients;
 	};
 	
-	clientManager::clientManager()
+	//Constructor for client manager, requires port server is to be run on
+	clientManager::clientManager(int servPort)
 	{
-		//ADD TRY CATCH ON SOCKET/BIND/LISTEN
 		FD_ZERO(&currentClients);
 		server.sin_family = AF_INET;
 		server.sin_addr.s_addr = INADDR_ANY;
-		server.sin_port = htons(12345);
+		server.sin_port = htons(servPort);
 		//0 seconds makes select instantly return (poll)
 		timeout.tv_sec = 0;
 		timeout.tv_usec = 0;
-		servfd = socket(AF_INET, SOCK_STREAM, 0);
-		maxSockfd = servfd;
-		bind(servfd, (struct sockaddr *)&server, sizeof(server));
-		listen(servfd, MAXSOCKCONNS);
+		try
+		{
+			int result;
+			//Create socket for use over internet, stream type socket with unspecified protocol
+			servfd = socket(AF_INET, SOCK_STREAM, 0);
+			if(servfd == -1)
+			{
+				throw(servfd);
+			}
+			maxSockfd = servfd;
+			result = bind(servfd, (struct sockaddr *)&server, sizeof(server));
+			if(result == -1)
+			{
+				throw(errno);
+			}
+			//Listen for attempted connections to server, queuing up to MAXSOCKCONNS
+			result = listen(servfd, MAXSOCKCONNS);
+			if(result == -1)
+			{
+				throw(errno);
+			}
+		}
+		catch(int err)
+		{
+			std::cerr << gai_strerror(err) << std::endl;
+		}
+		
 	}
 	
+	//Client manager destructor, shutdowns all sockets
 	clientManager::~clientManager()
 	{
 		for(int i = 0; i < maxSockfd + 1; i++)
@@ -179,38 +215,43 @@ namespace Connection
 			if(FD_ISSET(i, &currentClients))
 			{
 				//Close socket with no more reading
-				shutdown(i, SHUT_RD);
+				shutdown(i, SHUT_RDWR);
 			}
 			FD_ZERO(&currentClients);
 		}
-		shutdown(servfd, SHUT_RD);
+		shutdown(servfd, SHUT_RDWR);
 	}
 	
-	void clientManager::echoToClients(char* message, int messageLen)
+	//Echoes given message of messageLen to all clients, ignoring the sender
+	void clientManager::echoToClients(char* message, int messageLen, int ignore)
 	{
 		int tmp = htonl(messageLen);
 		for(int i = 0; i < maxSockfd + 1; i++)
 		{
-			if(FD_ISSET(i, &currentClients))
+			//If i is a current client and was not the sender, echo message to them
+			if(FD_ISSET(i, &currentClients) && i != ignore)
 			{
-				std::cout << "i: " << i << " messageLen: " << messageLen << std::endl;
-				std::cout << "tmp: " << tmp << " message: " << message << std::endl;
+				//Size of message
 				write(i, &tmp, sizeof(uint32_t));
-				int writeCount = write(i, message, messageLen);
-				std::cout << writeCount << " " << sizeof(char) << std::endl;
+				//Message
+				write(i, message, messageLen);
 			}
 		}
 	}
 	
+	//Reads from clients, if there is a message, echo to all clients
 	void clientManager::readFromClients()
 	{
 		//Temporary set to hold current clients as argument to select is modified in place
 		fd_set tmpSet;
-		memcpy(&tmpSet, &currentClients, sizeof(tmpSet));		
+		//Copy currentClients into tmpSet
+		memcpy(&tmpSet, &currentClients, sizeof(tmpSet));
+		//Buffer to be used to check if socket has closed since last check
+		char buff[1];		
 		try
 		{
+			//Check all clients for messages
 			int result = select(maxSockfd + 1, &tmpSet, NULL, NULL, &timeout);
-			//std::cout << result << std::endl;
 			if(result == -1)
 			{
 				throw(errno);
@@ -219,17 +260,30 @@ namespace Connection
 			{
 				for(int i = 0; i < maxSockfd + 1; i++)
 				{
+					//If i is ready to be read from
 					if(FD_ISSET(i, &tmpSet))
 					{
-						char msg[256];
-						int size;
-						memset(msg, '\0', 256);
-						read(i, &size, sizeof(uint32_t));
-						size = ntohl(size);
-						std::cout << "Size: " << size << std::endl;
-						read(i, &msg, size);
-						std::cout << "Message: " << msg << std::endl;
-						echoToClients(msg, size);
+						//Check the message isn't blank (indicating shutdown)
+						if(recv(i, buff, sizeof(buff), MSG_PEEK | MSG_DONTWAIT) != 0)
+						{
+							char msg[256];
+							int size;
+							memset(msg, '\0', 256);
+							//Read size of message
+							read(i, &size, sizeof(uint32_t));
+							size = ntohl(size);
+							//Read message
+							read(i, &msg, size);
+							//Echo to all clients except sender
+							echoToClients(msg, size, i);
+						}
+						//If client has shutdown
+						else
+						{
+							//Remove from currentClients set and shutdown socket
+							FD_CLR(i, &currentClients);
+							shutdown(i, SHUT_RDWR);
+						}
 					}
 				}
 			}
@@ -240,6 +294,7 @@ namespace Connection
 		}
 	}
 	
+	//Add new clients to set as they connect
 	void clientManager::addNewClients()
 	{
 		//fd_set to contain just the server file descriptor to use in select
@@ -257,12 +312,21 @@ namespace Connection
 			}
 			else if(result == 1)
 			{
-				std::cout << "Adding new conn" << std::endl;
+				std::cout << "Adding new connection" << std::endl;
 				socklen_t len = sizeof(server);
-				//T/C FOR ACCEPT
 				int newSockfd = accept(servfd, (struct sockaddr *)&server, &len);
-				std::cout << servfd << " " << newSockfd << std::endl;
+				if(newSockfd == -1)
+				{
+					throw newSockfd;
+				}
+				//Character array to hold new clients ip to be output
+				char ipStr[INET_ADDRSTRLEN];
+				//Fill ipStr with ip address
+				inet_ntop(AF_INET, &(server.sin_addr), ipStr, INET_ADDRSTRLEN);
+				std::cout << "Connection accepted from: " << ipStr << std::endl;
+				//Add new connection to currentClients
 				FD_SET(newSockfd, &currentClients);
+				//If maxSockfd < newSockfd, update it to newSockfd
 				maxSockfd = (maxSockfd < newSockfd) ? newSockfd:maxSockfd;
 			}
 		}

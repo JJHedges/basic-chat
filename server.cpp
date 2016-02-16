@@ -1,14 +1,22 @@
-#include <iostream>
-#include <sys/socket.h>
-#include <arpa/inet.h>
 #include "Connection.hpp"
+#include <stdlib.h>
 
 int main(int argc, char** argv)
 {
-	Connection::clientManager cliMan;
-	while(true)
+	if(argc == 2)
 	{
-		cliMan.addNewClients();
-		cliMan.readFromClients();
+		//Specify port to be run on from arguments
+		int port = atoi(argv[1]);
+		Connection::clientManager cliMan(port);
+		//Loop forever checking for new clients and reading from clients
+		while(true)
+		{
+			cliMan.addNewClients();
+			cliMan.readFromClients();
+		}
+	}
+	else
+	{
+		std::cout << "Usage is ./server 'port'" << std::endl;
 	}
 }
